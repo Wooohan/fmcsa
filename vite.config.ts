@@ -6,5 +6,5 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
-  base: '/fmcsa/',        // <--- make sure this is exactly like this
+  base: '/fmcsa/',
 });
