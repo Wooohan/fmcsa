@@ -9,5 +9,5 @@ export default defineConfig({
   },
 });
 export default defineConfig({
-  base: 'Wooohan-patch-1',
+  base: '/Wooohan-patch-1/',
 });
