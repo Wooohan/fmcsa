@@ -160,9 +160,9 @@ async function scrapeFMCSAData(params: ScrapeRequest) {
       const data = await crawlMCData(mc, entities, authorized, standard);
       if (data) {
         results.push(data);
-        console.log(`Scraped MC ${mc}`);
+        console.log(`Scraped MC ${mc}: ${data.legal_name}`);
       }
-      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 700));
+      await new Promise(resolve => setTimeout(resolve, 200 + Math.random() * 500));
     } catch (error) {
       console.error(`Error scraping MC ${mc}:`, error);
     }
@@ -188,65 +188,82 @@ async function crawlMCData(
     });
 
     if (!response.ok) {
-      console.log(`MC ${mc}: HTTP ${response.status}`);
       return null;
     }
 
     const html = await response.text();
 
     if (!html.includes('Legal Name:')) {
-      console.log(`MC ${mc}: Not found in FMCSA`);
       return null;
     }
 
-    const extractValue = (pattern: RegExp): string => {
-      const match = html.match(pattern);
-      return match ? match[1].replace(/<[^>]*>/g, '').trim() : '';
-    };
+    // Extract fields
+    const legalMatch = html.match(/Legal Name:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const legal_name = legalMatch ? legalMatch[1].trim() : '';
 
-    const legal_name = extractValue(/Legal Name:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
-    const dba_name = extractValue(/DBA Name:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
-    const physical_address = extractValue(/Physical Address:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
-    const phone = extractValue(/Phone:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const mailing_address = extractValue(/Mailing Address:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
-    const usdot = extractValue(/USDOT Number:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const state_carrier_id = extractValue(/State Carrier ID Number:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const power_units = extractValue(/Power Units:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const drivers = extractValue(/Drivers:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const mcs_150_date = extractValue(/MCS-150 Form Date:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const out_of_service = extractValue(/Out of Service Date:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const duns = extractValue(/DUNS Number:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
+    const dbaMatch = html.match(/DBA Name:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const dba_name = dbaMatch ? dbaMatch[1].trim() : '';
 
-    const entityTypeMatch = html.match(/Entity Type:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const entity_type = entityTypeMatch ? entityTypeMatch[1].trim() : '';
+    const entityMatch = html.match(/Entity Type:<\/A><\/TH>[\s\S]{0,300}?<TD[^>]*>\s*([A-Z]+)/);
+    const entity_type = entityMatch ? entityMatch[1].trim() : '';
 
-    const operatingStatusMatch = html.match(/Operating Authority Status:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
-    const operating_status = operatingStatusMatch ? operatingStatusMatch[1].trim() : '';
+    const statusMatch = html.match(/Operating Authority Status[\s\S]{0,500}?<li><b>([^<]+)/);
+    const operating_status = statusMatch ? statusMatch[1].trim() : '';
 
-    const entityMatch = entities ? entities.split(',').includes(entity_type) : true;
-    const statusMatch = standard ? true : (authorized ? operating_status.includes('AUTHORIZED') : !operating_status.includes('AUTHORIZED'));
+    const physicalMatch = html.match(/Physical Address:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const physical_address = physicalMatch ? physicalMatch[1].trim() : '';
 
-    if (!entityMatch) {
-      console.log(`MC ${mc}: Entity type ${entity_type} not matched (filter: ${entities})`);
-      return null;
-    }
-    
-    if (!statusMatch) {
-      console.log(`MC ${mc}: Status ${operating_status} not matched (authorized: ${authorized}, standard: ${standard})`);
-      return null;
-    }
-    
+    const phoneMatch = html.match(/Phone:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const phone = phoneMatch ? phoneMatch[1].trim() : '';
+
+    const mailingMatch = html.match(/Mailing Address:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const mailing_address = mailingMatch ? mailingMatch[1].trim() : '';
+
+    const usdotMatch = html.match(/USDOT Number:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>(\d+)/);
+    const usdot = usdotMatch ? usdotMatch[1].trim() : '';
+
+    const stateMatch = html.match(/State Carrier ID Number:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const state_carrier_id = stateMatch ? stateMatch[1].trim() : '';
+
+    const powerMatch = html.match(/Power Units:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const power_units = powerMatch ? powerMatch[1].trim() : '';
+
+    const driversMatch = html.match(/Drivers:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const drivers = driversMatch ? driversMatch[1].trim() : '';
+
+    const dunsMatch = html.match(/DUNS Number:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const duns = dunsMatch ? dunsMatch[1].trim() : '';
+
+    const mcsMatch = html.match(/MCS-150 Form Date:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const mcs_150_date = mcsMatch ? mcsMatch[1].trim() : '';
+
+    const oosMatch = html.match(/Out of Service Date:<\/A><\/TH>[\s\S]{0,200}?<TD[^>]*>([^<&]+)/);
+    const out_of_service = oosMatch ? oosMatch[1].trim() : '';
+
+    // Validate required fields
     if (!legal_name || !usdot) {
-      console.log(`MC ${mc}: Missing required fields (legal_name: ${!!legal_name}, usdot: ${!!usdot})`);
       return null;
     }
 
-    const result = {
+    // Filter by entity type
+    if (entities && !entities.split(',').includes(entity_type)) {
+      return null;
+    }
+
+    // Filter by status
+    if (authorized && !operating_status.includes('AUTHORIZED')) {
+      return null;
+    }
+    if (!authorized && !standard && operating_status.includes('AUTHORIZED')) {
+      return null;
+    }
+
+    return {
       mc: mc.toString(),
       legal_name: legal_name.substring(0, 200),
       dba_name: dba_name.substring(0, 200),
       entity_type,
-      operating_status,
+      operating_status: operating_status.substring(0, 100),
       physical_address: physical_address.substring(0, 300),
       phone,
       mailing_address: mailing_address.substring(0, 300),
@@ -259,9 +276,6 @@ async function crawlMCData(
       out_of_service,
       scraped_at: new Date().toISOString()
     };
-
-    console.log(`MC ${mc}: Successfully scraped`);
-    return result;
   } catch (error) {
     console.error(`Error crawling MC ${mc}:`, error);
     return null;
