@@ -77,28 +77,49 @@ export function Dashboard() {
   };
 
   const downloadResults = (job: ScrapeJob) => {
-    if (!job.result_data) return;
+    if (!job.result_data || !Array.isArray(job.result_data) || job.result_data.length === 0) {
+      alert('No data available for download');
+      return;
+    }
 
     const csv = convertToCSV(job.result_data);
-    const blob = new Blob([csv], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `fmcsa_${job.start_point}_${job.start_point + job.records}.csv`;
-    a.click();
+    if (!csv) {
+      alert('Failed to generate CSV');
+      return;
+    }
+
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `fmcsa_${job.start_point}_${job.start_point + job.records}_${new Date().getTime()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const convertToCSV = (data: any[]) => {
-    if (!data.length) return '';
+    if (!data || !Array.isArray(data) || data.length === 0) return '';
 
-    const headers = Object.keys(data[0]).join(',');
-    const rows = data.map(row =>
-      Object.values(row).map(val =>
-        `"${String(val).replace(/"/g, '""')}"`
-      ).join(',')
-    );
+    const fieldNames = ['mc', 'legal_name', 'dba_name', 'entity_type', 'operating_status', 'physical_address', 'phone', 'mailing_address', 'usdot', 'state_carrier_id', 'power_units', 'drivers', 'duns', 'mcs_150_date', 'out_of_service', 'scraped_at'];
 
-    return [headers, ...rows].join('\n');
+    const escapeCSV = (val: any) => {
+      if (val === null || val === undefined) return '""';
+      const str = String(val);
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return `"${str}"`;
+    };
+
+    const headerRow = fieldNames.map(name => `"${name}"`).join(',');
+
+    const dataRows = data.map(row => {
+      return fieldNames.map(field => escapeCSV(row[field] || '')).join(',');
+    });
+
+    return [headerRow, ...dataRows].join('\n');
   };
 
   const getStatusIcon = (status: string) => {
@@ -297,16 +318,21 @@ export function Dashboard() {
                       </div>
                     </div>
 
-                    <div className="flex items-center justify-between text-sm text-gray-600">
+                    <div className="flex items-center justify-between text-sm text-gray-600 mb-2">
                       <span>{job.records} records</span>
                       {job.status === 'completed' && job.result_data && (
-                        <button
-                          onClick={() => downloadResults(job)}
-                          className="flex items-center gap-1 text-blue-500 hover:text-blue-600 font-medium"
-                        >
-                          <Download className="w-4 h-4" />
-                          Download
-                        </button>
+                        <>
+                          <span className="text-green-600 font-medium">
+                            {Array.isArray(job.result_data) ? job.result_data.length : 0} extracted
+                          </span>
+                          <button
+                            onClick={() => downloadResults(job)}
+                            className="flex items-center gap-1 text-blue-500 hover:text-blue-600 font-medium"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download
+                          </button>
+                        </>
                       )}
                     </div>
                   </div>

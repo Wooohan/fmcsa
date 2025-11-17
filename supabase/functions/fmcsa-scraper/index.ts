@@ -94,10 +94,15 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    console.log(`Starting scrape job ${job.id} for MC ${requestData.start_point}-${requestData.start_point + requestData.records}`);
+
     EdgeRuntime.waitUntil(
       (async () => {
         try {
+          console.log(`Processing job ${job.id}...`);
           const results = await scrapeFMCSAData(requestData);
+          
+          console.log(`Job ${job.id} completed with ${results.length} records`);
           
           await supabase
             .from('scrape_jobs')
@@ -114,8 +119,10 @@ Deno.serve(async (req: Request) => {
               records_remaining: profile.records_remaining - requestData.records
             })
             .eq('id', user.id);
+
+          console.log(`Job ${job.id} saved successfully`);
         } catch (error) {
-          console.error('Scraping error:', error);
+          console.error(`Job ${job.id} failed:`, error);
           await supabase
             .from('scrape_jobs')
             .update({ status: 'failed' })
@@ -146,16 +153,22 @@ async function scrapeFMCSAData(params: ScrapeRequest) {
   else if (brokers && !carriers) entities = 'BROKER';
   else if (carriers && brokers) entities = 'CARRIER,BROKER';
 
+  console.log(`Scraping with entities: ${entities}, authorized: ${authorized}, standard: ${standard}`);
+
   for (let mc = start_point; mc < start_point + records; mc++) {
     try {
       const data = await crawlMCData(mc, entities, authorized, standard);
-      if (data) results.push(data);
-      await new Promise(resolve => setTimeout(resolve, 500 + Math.random() * 1500));
+      if (data) {
+        results.push(data);
+        console.log(`Scraped MC ${mc}`);
+      }
+      await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 700));
     } catch (error) {
       console.error(`Error scraping MC ${mc}:`, error);
     }
   }
 
+  console.log(`Scraping complete. Total results: ${results.length}`);
   return results;
 }
 
@@ -174,19 +187,25 @@ async function crawlMCData(
       }
     });
 
-    if (!response.ok) return null;
+    if (!response.ok) {
+      console.log(`MC ${mc}: HTTP ${response.status}`);
+      return null;
+    }
 
     const html = await response.text();
 
-    if (!html.includes('Legal Name:')) return null;
+    if (!html.includes('Legal Name:')) {
+      console.log(`MC ${mc}: Not found in FMCSA`);
+      return null;
+    }
 
     const extractValue = (pattern: RegExp): string => {
       const match = html.match(pattern);
       return match ? match[1].replace(/<[^>]*>/g, '').trim() : '';
     };
 
-    const legal_name = extractValue(/Legal Name:\s*<\/th>\s*<td[^>]*>([^<]*<[^>]*>[^<]*)?/i);
-    const dba_name = extractValue(/DBA Name:\s*<\/th>\s*<td[^>]*>([^<]*<[^>]*>[^<]*)?/i);
+    const legal_name = extractValue(/Legal Name:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
+    const dba_name = extractValue(/DBA Name:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
     const physical_address = extractValue(/Physical Address:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
     const phone = extractValue(/Phone:\s*<\/th>\s*<td[^>]*>([^<]+)/i);
     const mailing_address = extractValue(/Mailing Address:\s*<\/th>\s*<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)/i);
@@ -207,10 +226,22 @@ async function crawlMCData(
     const entityMatch = entities ? entities.split(',').includes(entity_type) : true;
     const statusMatch = standard ? true : (authorized ? operating_status.includes('AUTHORIZED') : !operating_status.includes('AUTHORIZED'));
 
-    if (!entityMatch || !statusMatch) return null;
-    if (!legal_name || !usdot) return null;
+    if (!entityMatch) {
+      console.log(`MC ${mc}: Entity type ${entity_type} not matched (filter: ${entities})`);
+      return null;
+    }
+    
+    if (!statusMatch) {
+      console.log(`MC ${mc}: Status ${operating_status} not matched (authorized: ${authorized}, standard: ${standard})`);
+      return null;
+    }
+    
+    if (!legal_name || !usdot) {
+      console.log(`MC ${mc}: Missing required fields (legal_name: ${!!legal_name}, usdot: ${!!usdot})`);
+      return null;
+    }
 
-    return {
+    const result = {
       mc: mc.toString(),
       legal_name: legal_name.substring(0, 200),
       dba_name: dba_name.substring(0, 200),
@@ -228,6 +259,9 @@ async function crawlMCData(
       out_of_service,
       scraped_at: new Date().toISOString()
     };
+
+    console.log(`MC ${mc}: Successfully scraped`);
+    return result;
   } catch (error) {
     console.error(`Error crawling MC ${mc}:`, error);
     return null;
